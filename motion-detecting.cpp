@@ -525,12 +525,16 @@ void drawProximity(const std::vector<MapType>& mappings, Mat& imageGray)
         */
     }
 
+    const float minValue = .4f; // threshold
+    const float maxValue = 1;
+    const float medium = (minValue + maxValue) / 2;
+
     for (int y = 0; y < coeffs.size(); ++y)
         for (int x = 0; x < coeffs[0].size(); ++x)
         { 
-            const float minValue = 0;
-            const float medium = .5f;
-            const float maxValue = 1;
+            auto value = coeffs[y][x];
+            if (value < minValue)
+                continue;
 
             Point pt(x, y);
             // get pixel
@@ -539,7 +543,6 @@ void drawProximity(const std::vector<MapType>& mappings, Mat& imageGray)
             // ... do something to the color ....
 
             //const auto value = pair.second;
-            auto value = coeffs[y][x];
             //value = value * value * value;
 
             if (value < medium)
@@ -707,8 +710,8 @@ int main(int argc, char** argv)
 
     //char ch;
     Mat curGray, /*prevGray,*/ flowImageGray;
-    string windowName = "Optical Flow";
-    namedWindow(windowName, 1);
+    string windowName = "Anomalies";
+    namedWindow(windowName, WINDOW_NORMAL);
 
 
     if (frame.empty())
