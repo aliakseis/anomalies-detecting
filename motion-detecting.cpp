@@ -438,6 +438,119 @@ void drawProximity(const MapType& points, Mat& imageGray)
 
 }
 
+MapType GenerateMap(const Mat& curGray)
+{
+    PointsProvider provider(&curGray); //&prevGray);
+
+    my_kd_tree_t infos(NUM_ATTRIBUTES, provider);
+
+    //infos.buildIndex();
+    infos.fastBuildIndex();
+
+    //const auto numRows = prevGray.rows - DIMENSION + 1;
+    //const auto numCols = prevGray.cols - DIMENSION + 1;
+    const auto numRows = curGray.rows - DIMENSION + 1;
+    const auto numCols = curGray.cols - DIMENSION + 1;
+
+
+    auto lam = [&infos, &curGray](int yBegin, int yEnd) {
+
+        const auto numCols = curGray.cols - DIMENSION + 1;
+
+        MapType shifts;
+
+        // searching
+        //for (int y = 0; y < numRows; ++y)
+        for (int y = yBegin; y < yEnd; ++y)
+        {
+            for (int x = 0; x < numCols; ++x)
+            {
+                //if ((y & 7) || (x & 7))
+                //    continue;
+
+                AttributeType pos[NUM_ATTRIBUTES];
+                unsigned int sq_sum = 0;
+                for (int i = 0; i < DIMENSION; ++i)
+                    for (int j = 0; j < DIMENSION; ++j)
+                    {
+                        const auto v = curGray.at<uchar>(y + i, x + j);
+                        pos[i * DIMENSION + j + ADDITIONAL] = v;
+                        sq_sum += v * v;
+                    }
+
+                //pos[0] = 0;
+                //pos[1] = 0;
+
+                if (sq_sum > 0)
+                {
+                    const auto coeff = sqrt(sq_sum);
+                    for (auto& v : pos)
+                        v /= coeff;
+                }
+
+                //pos[0] = float(y + DIMENSION / 2) / curGray.rows;
+                //pos[1] = float(x + DIMENSION / 2) / curGray.cols;
+
+
+                //size_t num_results = 2;
+                //enum { NUM_RESULTS = 20 };
+                enum { NUM_RESULTS = 3 };
+                //std::vector<size_t>   ret_index(num_results);
+                //std::vector<float> out_dist_sqr(num_results);
+                size_t ret_index[NUM_RESULTS];
+                float out_dist_sqr[NUM_RESULTS];
+
+                const auto num_results = infos.knnSearch(&pos[0], NUM_RESULTS, &ret_index[0], &out_dist_sqr[0]);
+
+                // In case of less points in the tree than requested:
+                //ret_index.resize(num_results);
+                //out_dist_sqr.resize(num_results);
+
+                if (num_results == NUM_RESULTS)
+                {
+                    Point ptTo(x + DIMENSION / 2, y + DIMENSION / 2);
+                    shifts.push_back({ ptTo, out_dist_sqr[num_results - 1] });
+                }
+
+
+                //if (out_dist_sqr[1] > 0 && out_dist_sqr[1] > out_dist_sqr[0] * 1.2)
+                //{
+                //    Point ptFrom((ret_index[0] % numCols) + DIMENSION / 2, (ret_index[0] / numCols) + DIMENSION / 2);
+                //    Point ptTo(x + DIMENSION / 2, y + DIMENSION / 2);
+                //    if (std::abs(ptTo.x - ptFrom.x) > 1 || std::abs(ptTo.y - ptFrom.y) > 1)
+                //    {
+                //        shifts.push_back({ ptFrom, ptTo });
+                //    }
+                //}
+            }
+        }
+
+        return shifts;
+    };
+
+    enum { NUM_THREADS = 16 };
+
+    std::vector<std::future<MapType>> proxies;
+
+    for (int i = 0; i < NUM_THREADS; ++i)
+    {
+        proxies.push_back(std::async(std::launch::async, lam,
+            (numRows * i) / NUM_THREADS,
+            (numRows * (i + 1)) / NUM_THREADS));
+    }
+
+    MapType shifts;
+
+    for (auto& p : proxies)
+    {
+        auto v = p.get();
+        shifts.insert(shifts.end(), std::make_move_iterator(v.begin()), std::make_move_iterator(v.end()));
+    }
+
+    return shifts;
+}
+
+
 int main(int argc, char** argv)
 {
     try
@@ -470,7 +583,7 @@ int main(int argc, char** argv)
     Mat curGray, /*prevGray,*/ flowImageGray;
     string windowName = "Optical Flow";
     namedWindow(windowName, 1);
-    float scalingFactor = 1. / 4; //0.125;
+    float scalingFactor = 1. / 3; //0.125;
 
 
     if (frame.empty())
@@ -492,112 +605,8 @@ int main(int argc, char** argv)
         // Check if the image is valid
         //if (prevGray.data)
         //{
-            PointsProvider provider(&curGray); //&prevGray);
 
-            my_kd_tree_t infos(NUM_ATTRIBUTES, provider);
-
-            //infos.buildIndex();
-            infos.fastBuildIndex();
-
-            //const auto numRows = prevGray.rows - DIMENSION + 1;
-            //const auto numCols = prevGray.cols - DIMENSION + 1;
-            const auto numRows = curGray.rows - DIMENSION + 1;
-            const auto numCols = curGray.cols - DIMENSION + 1;
-
-
-            auto lam = [&infos, &curGray](int yBegin, int yEnd) {
-                
-                const auto numCols = curGray.cols - DIMENSION + 1;
-
-                MapType shifts;
-
-                // searching
-                //for (int y = 0; y < numRows; ++y)
-                for (int y = yBegin; y < yEnd; ++y)
-                {
-                    for (int x = 0; x < numCols; ++x)
-                    {
-                        //if ((y & 7) || (x & 7))
-                        //    continue;
-
-                        AttributeType pos[NUM_ATTRIBUTES];
-                        unsigned int sq_sum = 0;
-                        for (int i = 0; i < DIMENSION; ++i)
-                            for (int j = 0; j < DIMENSION; ++j)
-                            {
-                                const auto v = curGray.at<uchar>(y + i, x + j);
-                                pos[i * DIMENSION + j + ADDITIONAL] = v;
-                                sq_sum += v * v;
-                            }
-
-                        //pos[0] = 0;
-                        //pos[1] = 0;
-
-                        if (sq_sum > 0)
-                        {
-                            const auto coeff = sqrt(sq_sum);
-                            for (auto& v : pos)
-                                v /= coeff;
-                        }
-
-                        //pos[0] = float(y + DIMENSION / 2) / curGray.rows;
-                        //pos[1] = float(x + DIMENSION / 2) / curGray.cols;
-
-
-                        //size_t num_results = 2;
-                        //enum { NUM_RESULTS = 20 };
-                        enum { NUM_RESULTS = 3 };
-                        //std::vector<size_t>   ret_index(num_results);
-                        //std::vector<float> out_dist_sqr(num_results);
-                        size_t ret_index[NUM_RESULTS];
-                        float out_dist_sqr[NUM_RESULTS];
-
-                        const auto num_results = infos.knnSearch(&pos[0], NUM_RESULTS, &ret_index[0], &out_dist_sqr[0]);
-
-                        // In case of less points in the tree than requested:
-                        //ret_index.resize(num_results);
-                        //out_dist_sqr.resize(num_results);
-
-                        if (num_results == NUM_RESULTS)
-                        {
-                            Point ptTo(x + DIMENSION / 2, y + DIMENSION / 2);
-                            shifts.push_back({ ptTo, out_dist_sqr[num_results - 1] });
-                        }
-
-
-                        //if (out_dist_sqr[1] > 0 && out_dist_sqr[1] > out_dist_sqr[0] * 1.2)
-                        //{
-                        //    Point ptFrom((ret_index[0] % numCols) + DIMENSION / 2, (ret_index[0] / numCols) + DIMENSION / 2);
-                        //    Point ptTo(x + DIMENSION / 2, y + DIMENSION / 2);
-                        //    if (std::abs(ptTo.x - ptFrom.x) > 1 || std::abs(ptTo.y - ptFrom.y) > 1)
-                        //    {
-                        //        shifts.push_back({ ptFrom, ptTo });
-                        //    }
-                        //}
-                    }
-                }
-
-                return shifts;
-            };
-
-            enum { NUM_THREADS = 16 };
-
-            std::vector<std::future<MapType>> proxies;
-
-            for (int i = 0; i < NUM_THREADS; ++i)
-            {
-                proxies.push_back(std::async(std::launch::async, lam, 
-                    (numRows * i) / NUM_THREADS,
-                    (numRows * (i + 1)) / NUM_THREADS));
-            }
-
-            MapType shifts;
-
-            for (auto& p : proxies)
-            {
-                auto v = p.get();
-                shifts.insert(shifts.end(), std::make_move_iterator(v.begin()), std::make_move_iterator(v.end()));
-            }
+        auto shifts = GenerateMap(curGray);
 
             // Convert to 3-channel RGB
             cvtColor(curGray, flowImageGray, COLOR_GRAY2BGR);
