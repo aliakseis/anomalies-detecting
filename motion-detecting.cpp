@@ -2,8 +2,6 @@
 //
 
 
-#include "pch.h"
-
 #include "nanoflann.hpp"
 
 #include "opencv2/video/tracking.hpp"
