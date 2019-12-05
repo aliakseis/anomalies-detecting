@@ -14,6 +14,11 @@
 
 #include <future>
 
+#include <numeric>
+
+#include <utility>
+
+
 #include <float.h>
 
 using namespace cv;
@@ -131,7 +136,7 @@ inline void fastdivmod(uint32_t eax,
 
 //////////////////////////////////////////////////////////////////////////////
 
-void OffsetImage(cv::Mat &image, int xoffset, int yoffset, cv::Scalar bordercolour = {0, 0, 0})
+void OffsetImage(cv::Mat &image, int xoffset, int yoffset, const cv::Scalar& bordercolour = {0, 0, 0})
 {
     if (xoffset != 0 && yoffset != 0)
     {
@@ -172,6 +177,11 @@ public:
         return m_numRows * m_numCols;
     }
 
+    void get_x_y(const size_t idx, uint32_t& x, uint32_t& y) const
+    {
+        fastdivmod(&m_fastdivctx, idx, &y, &x);
+    }
+
     // Returns the dim'th component of the idx'th point in the class:
     // Since this is inlined and the "dim" argument is typically an immediate value, the
     //  "if/else's" are actually solved at compile time.
@@ -181,7 +191,8 @@ public:
         //const auto y = idx / m_numCols;
 
         uint32_t x, y;
-        fastdivmod(&m_fastdivctx, idx, &y, &x);
+        get_x_y(idx, x, y);
+        //fastdivmod(&m_fastdivctx, idx, &y, &x);
         
         //switch (dim)
         //{
@@ -469,6 +480,9 @@ void drawProximity(const std::vector<MapType>& mappings, Mat& imageGray)
 
     for (auto& points : mappings)
     {
+        if (points.empty())
+            continue;
+
         std::vector<float> values;
         values.reserve(points.size());
 
@@ -582,7 +596,7 @@ MapType GenerateMap(const Mat& curGray)
     const auto numCols = curGray.cols - DIMENSION + 1;
 
 
-    auto lam = [&infos, &curGray](int yBegin, int yEnd) {
+    auto lam = [&infos, &curGray, &provider](int yBegin, int yEnd) {
 
         const auto numCols = curGray.cols - DIMENSION + 1;
 
@@ -622,23 +636,43 @@ MapType GenerateMap(const Mat& curGray)
 
 
                 //size_t num_results = 2;
-                //enum { NUM_RESULTS = 20 };
-                enum { NUM_RESULTS = 3 };
+                //enum { NUM_RESULTS = 3 };
                 //std::vector<size_t>   ret_index(num_results);
                 //std::vector<float> out_dist_sqr(num_results);
+
+                enum { NUM_RESULTS = 30 };
+
                 size_t ret_index[NUM_RESULTS];
                 float out_dist_sqr[NUM_RESULTS];
 
                 const auto num_results = infos.knnSearch(&pos[0], NUM_RESULTS, &ret_index[0], &out_dist_sqr[0]);
 
+                auto results = std::inner_product(
+                    ret_index, ret_index + num_results, out_dist_sqr,
+                    std::vector<std::pair<size_t, float>>(),
+                    [](auto a, auto b) { a.push_back(std::move(b)); return a; },
+                    std::make_pair<size_t&, float&>
+                );
+
+                results.erase(
+                    std::remove_if(results.begin(), results.end(), 
+                        [&provider, x, y](const auto& result) { 
+                            uint32_t xx, yy;
+                            provider.get_x_y(result.first, xx, yy);
+                            return hypot(x - int(xx), y - int(yy)) < 20;
+                        }),
+                    results.end());
+
                 // In case of less points in the tree than requested:
                 //ret_index.resize(num_results);
                 //out_dist_sqr.resize(num_results);
 
-                if (num_results == NUM_RESULTS)
+                enum { NN_RESULT = 19 };
+
+                if (results.size() > NN_RESULT)
                 {
                     Point ptTo(x + DIMENSION / 2, y + DIMENSION / 2);
-                    shifts.push_back({ ptTo, out_dist_sqr[num_results - 1] });
+                    shifts.push_back({ ptTo, results[NN_RESULT].second });
                 }
 
 
