@@ -33,8 +33,6 @@ using namespace nanoflann;
 struct fastdivctx {
     uint32_t mult;
     uint32_t mod;
-    //uint8_t shift1 : 1;
-    //uint8_t shift2 : 7;
     uint32_t shift1, shift2;
 };
 
@@ -187,18 +185,8 @@ public:
     //  "if/else's" are actually solved at compile time.
     float kdtree_get_pt(const size_t idx, const size_t dim) const
     {
-        //const auto x = idx % m_numCols;
-        //const auto y = idx / m_numCols;
-
         uint32_t x, y;
         get_x_y(idx, x, y);
-        //fastdivmod(&m_fastdivctx, idx, &y, &x);
-        
-        //switch (dim)
-        //{
-        //case 0: return double(y + DIMENSION / 2) / m_mat->rows;
-        //case 1: return double(x + DIMENSION / 2) / m_mat->cols;
-        //}
 
         const double coeff = get_coeff(idx);
         
@@ -236,20 +224,10 @@ private:
     }
     float do_kdtree_get_pt(const size_t idx, const size_t dim) const
     {
-        //const auto x = idx % m_numCols;
-        //const auto y = idx / m_numCols;
-
         uint32_t x, y;
-        fastdivmod(&m_fastdivctx, idx, &y, &x);
+        get_x_y(idx, x, y);
         return do_kdtree_get_pt(x, y, dim);
     }
-    //float do_kdtree_get_pt(uint32_t x, uint32_t y, const size_t dim) const
-    //{
-    //    const double v = m_mat->at<uchar>(
-    //        y + ((dim - ADDITIONAL) / DIMENSION),
-    //        x + ((dim - ADDITIONAL) % DIMENSION));
-    //    return v;
-    //}
     float do_kdtree_get_pt(uint32_t x, uint32_t y, size_t dim) const
     {
         uint32_t div, mod;
@@ -281,196 +259,9 @@ typedef KDTreeSingleIndexAdaptor<
 typedef std::vector<std::pair<Point, float>> MapType;
 
 
-// Function to compute the optical flow map
-//void drawOpticalFlow(const std::vector<std::pair<Point, Point>>& shifts, Mat& flowImageGray)
-//{
-//    int stepSize = 16;
-//    Scalar color = Scalar(0, 255, 0);
-//
-//    for (const auto& pair : shifts)
-//    {
-//        // Circles to indicate the uniform grid of points
-//        int radius = 2;
-//        int thickness = -1;
-//        circle(flowImageGray, pair.first, radius, color, thickness);
-//        line(flowImageGray, pair.first, pair.second, color);
-//    }
-//}
-
-#if 0
-void drawProximity(const MapType& points, Mat& imageGray)
-{
-    float minValue = FLT_MAX;
-    float maxValue = FLT_MIN;
-
-    for (const auto& pair : points)
-    {
-        if (pair.second < minValue)
-            minValue = pair.second;
-        if (pair.second > maxValue)
-            maxValue = pair.second;
-    }
-
-    const auto medium = (minValue + maxValue) / 2;
-
-    for (const auto& pair : points)
-    {
-        // get pixel
-        auto color = imageGray.at<Vec3b>(pair.first);
-
-        // ... do something to the color ....
-
-        const auto value = pair.second;
-        if (value < medium)
-        {
-            const auto coeff = (value - minValue) / (medium - minValue);
-            color[1] *= coeff;
-            color[0] *= (1.f - coeff);
-            color[2] = 0;
-        }
-        else
-        {
-            const auto coeff = (value - medium) / (maxValue - medium);
-            color[2] *= coeff;
-            color[1] *= (1.f - coeff);
-            color[0] = 0;
-        }
-
-        // set pixel
-        imageGray.at<Vec3b>(pair.first) = color;
-    }
-}
-#endif
-
-#if 0
-void drawProximity(const MapType& points, Mat& imageGray)
-{
-    //float minValue = FLT_MAX;
-    //float maxValue = FLT_MIN;
-    {
-        float minValue = FLT_MAX;
-        float maxValue = FLT_MIN;
-
-        for (const auto& pair : points)
-        {
-            const auto value = sqrt(pair.second);
-            if (value < minValue)
-                minValue = value;
-            if (value > maxValue)
-                maxValue = value;
-        }
-
-        std::cout << "Min. value: " << minValue << "; max. value: " << maxValue << '\n';
-    }
-
-    double sqr_sum = 0;
-    double sum = 0;
-
-    for (const auto& pair : points)
-    {
-        const auto value = pair.second;
-        sqr_sum += value;
-        sum += sqrt(value);
-    }
-
-    const auto average = sum / points.size();
-
-    const auto disp = sqrt(sqr_sum / points.size() - average * average);
-
-    const auto minValue = average - disp;
-    const auto maxValue = average + disp;
-
-    std::cout << "Average: " << average << "; dispersion: " << disp << '\n';
-
-    for (const auto& pair : points)
-    {
-        // get pixel
-        auto color = imageGray.at<Vec3b>(pair.first);
-
-        // ... do something to the color ....
-
-        auto value = pair.second;
-        if (value < average)
-        {
-            auto coeff = (value - minValue) / disp;
-            if (coeff < 0)
-                coeff = 0;
-            color[1] *= coeff;
-            color[0] *= (1.f - coeff);
-            color[2] = 0;
-        }
-        else
-        {
-            auto coeff = (value - average) / disp;
-            if (coeff > 1.0)
-                coeff = 1.0;
-            color[2] *= coeff;
-            color[1] *= (1.f - coeff);
-            color[0] = 0;
-        }
-
-        // set pixel
-        imageGray.at<Vec3b>(pair.first) = color;
-    }
-}
-#endif
-
-#if 0
-void drawProximity(const MapType& points, Mat& imageGray)
-{
-    std::vector<float> values;
-    values.reserve(points.size());
-
-    for (const auto& pair : points)
-    {
-        const auto value = pair.second;
-        values.push_back(value);
-    }
-
-    std::sort(values.begin(), values.end());
-
-    const float minValue = 0;
-    const float medium = .5f;
-    const float maxValue = 1;
-
-    for (const auto& pair : points)
-    {
-        // get pixel
-        auto color = imageGray.at<Vec3b>(pair.first);
-
-        // ... do something to the color ....
-
-        //const auto value = pair.second;
-        const auto range = std::equal_range(values.begin(), values.end(), pair.second);
-        auto value = ((range.first - values.begin()) + (range.second - values.begin())) / (2. * values.size());
-        //value = value * value * value;
-
-        if (value < medium)
-        {
-            const auto coeff = (value - minValue) / (medium - minValue);
-            color[1] *= coeff;
-            color[0] *= (1.f - coeff);
-            color[2] = 0;
-        }
-        else
-        {
-            const auto coeff = (value - medium) / (maxValue - medium);
-            color[2] *= coeff;
-            color[1] *= (1.f - coeff);
-            color[0] = 0;
-        }
-
-        // set pixel
-        imageGray.at<Vec3b>(pair.first) = color;
-    }
-
-}
-#endif
 
 void drawProximity(const std::vector<MapType>& mappings, Mat& imageGray)
 {
-    //std::vector< std::vector<float>> mutiValues;
-
     std::vector<std::vector<float>> coeffs(imageGray.rows);
     for (auto& l : coeffs)
     {
@@ -494,49 +285,12 @@ void drawProximity(const std::vector<MapType>& mappings, Mat& imageGray)
 
         std::sort(values.begin(), values.end());
 
-        //mutiValues.push_back(std::move(values));
-
-
-
         for (const auto& pair : points)
         {
             const auto range = std::equal_range(values.begin(), values.end(), pair.second);
             auto value = ((range.first - values.begin()) + (range.second - values.begin())) / (2. * values.size());
             coeffs[pair.first.y][pair.first.x] *= value;
         }
-
-        /*
-        for (const auto& pair : points)
-        {
-            // get pixel
-            auto color = imageGray.at<Vec3b>(pair.first);
-
-            // ... do something to the color ....
-
-            //const auto value = pair.second;
-            const auto range = std::equal_range(values.begin(), values.end(), pair.second);
-            auto value = ((range.first - values.begin()) + (range.second - values.begin())) / (2. * values.size());
-            //value = value * value * value;
-
-            if (value < medium)
-            {
-                const auto coeff = (value - minValue) / (medium - minValue);
-                color[1] *= coeff;
-                color[0] *= (1.f - coeff);
-                color[2] = 0;
-            }
-            else
-            {
-                const auto coeff = (value - medium) / (maxValue - medium);
-                color[2] *= coeff;
-                color[1] *= (1.f - coeff);
-                color[0] = 0;
-            }
-
-            // set pixel
-            imageGray.at<Vec3b>(pair.first) = color;
-        }
-        */
     }
 
     const float minValue = .4f; // threshold
@@ -555,9 +309,6 @@ void drawProximity(const std::vector<MapType>& mappings, Mat& imageGray)
             auto color = imageGray.at<Vec3b>(pt);
 
             // ... do something to the color ....
-
-            //const auto value = pair.second;
-            //value = value * value * value;
 
             if (value < medium)
             {
@@ -590,8 +341,6 @@ MapType GenerateMap(const Mat& curGray)
     //infos.buildIndex();
     infos.fastBuildIndex();
 
-    //const auto numRows = prevGray.rows - DIMENSION + 1;
-    //const auto numCols = prevGray.cols - DIMENSION + 1;
     const auto numRows = curGray.rows - DIMENSION + 1;
     const auto numCols = curGray.cols - DIMENSION + 1;
 
@@ -603,14 +352,10 @@ MapType GenerateMap(const Mat& curGray)
         MapType shifts;
 
         // searching
-        //for (int y = 0; y < numRows; ++y)
         for (int y = yBegin; y < yEnd; ++y)
         {
             for (int x = 0; x < numCols; ++x)
             {
-                //if ((y & 7) || (x & 7))
-                //    continue;
-
                 AttributeType pos[NUM_ATTRIBUTES];
                 unsigned int sq_sum = 0;
                 for (int i = 0; i < DIMENSION; ++i)
@@ -621,24 +366,12 @@ MapType GenerateMap(const Mat& curGray)
                         sq_sum += v * v;
                     }
 
-                //pos[0] = 0;
-                //pos[1] = 0;
-
                 if (sq_sum > 0)
                 {
                     const auto coeff = sqrt(sq_sum);
                     for (auto& v : pos)
                         v /= coeff;
                 }
-
-                //pos[0] = float(y + DIMENSION / 2) / curGray.rows;
-                //pos[1] = float(x + DIMENSION / 2) / curGray.cols;
-
-
-                //size_t num_results = 2;
-                //enum { NUM_RESULTS = 3 };
-                //std::vector<size_t>   ret_index(num_results);
-                //std::vector<float> out_dist_sqr(num_results);
 
                 enum { NUM_RESULTS = 30 };
 
@@ -664,8 +397,6 @@ MapType GenerateMap(const Mat& curGray)
                     results.end());
 
                 // In case of less points in the tree than requested:
-                //ret_index.resize(num_results);
-                //out_dist_sqr.resize(num_results);
 
                 enum { NN_RESULT = 19 };
 
@@ -674,17 +405,6 @@ MapType GenerateMap(const Mat& curGray)
                     Point ptTo(x + DIMENSION / 2, y + DIMENSION / 2);
                     shifts.push_back({ ptTo, results[NN_RESULT].second });
                 }
-
-
-                //if (out_dist_sqr[1] > 0 && out_dist_sqr[1] > out_dist_sqr[0] * 1.2)
-                //{
-                //    Point ptFrom((ret_index[0] % numCols) + DIMENSION / 2, (ret_index[0] / numCols) + DIMENSION / 2);
-                //    Point ptTo(x + DIMENSION / 2, y + DIMENSION / 2);
-                //    if (std::abs(ptTo.x - ptFrom.x) > 1 || std::abs(ptTo.y - ptFrom.y) > 1)
-                //    {
-                //        shifts.push_back({ ptFrom, ptTo });
-                //    }
-                //}
             }
         }
 
@@ -772,10 +492,6 @@ int main(int argc, char** argv)
             // Convert to grayscale
             cvtColor(frameCopy, curGray, COLOR_BGR2GRAY);
 
-            // Check if the image is valid
-            //if (prevGray.data)
-            //{
-
             mappings.push_back(GenerateMap(curGray));
 
             if (i == 0)
@@ -785,21 +501,16 @@ int main(int argc, char** argv)
             }
         }
 
+        // Draw the optical flow map
+        drawProximity(mappings, flowImageGray);
 
-            // Draw the optical flow map
-            drawProximity(mappings, flowImageGray);
-
-            // Display the output image
-            imshow(windowName, flowImageGray);
-        //}
+        // Display the output image
+        imshow(windowName, flowImageGray);
 
         // Break out of the loop if the user presses the Esc key
         char ch = waitKey(10);
         if (ch == 27)
             break;
-
-        // Swap previous image with the current image
-        //std::swap(prevGray, curGray);
 
         // Capture the current frame
         cap >> frame;
