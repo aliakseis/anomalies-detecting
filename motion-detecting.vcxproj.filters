@@ -20,7 +20,7 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="motion-detecting.cpp">
+    <ClCompile Include="anomalies-detecting.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

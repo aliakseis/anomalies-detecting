@@ -1,4 +1,4 @@
-// motion-detecting.cpp : This file contains the 'main' function. Program execution begins and ends there.
+// anomalies-detecting.cpp : This file contains the 'main' function. Program execution begins and ends there.
 //
 
 
