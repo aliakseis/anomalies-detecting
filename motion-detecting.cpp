@@ -131,6 +131,22 @@ inline void fastdivmod(uint32_t eax,
 
 //////////////////////////////////////////////////////////////////////////////
 
+void OffsetImage(cv::Mat &image, int xoffset, int yoffset, cv::Scalar bordercolour = {0, 0, 0})
+{
+    if (xoffset != 0 && yoffset != 0)
+    {
+        cv::Mat H = (cv::Mat_<double>(3, 3) <<
+            1, 0, xoffset, 0, 1, yoffset, 0, 0, 1);
+
+        cv::Mat aux;
+        cv::warpPerspective(image, aux, H, image.size(), cv::INTER_LINEAR,
+            cv::BORDER_CONSTANT, bordercolour);
+        image = aux;
+    }
+}
+
+//////////////////////////////////////////////////////////////////////////////
+
 enum { DIMENSION = 3 };
 
 enum { ADDITIONAL = 0 };
@@ -388,6 +404,7 @@ void drawProximity(const MapType& points, Mat& imageGray)
 }
 #endif
 
+#if 0
 void drawProximity(const MapType& points, Mat& imageGray)
 {
     std::vector<float> values;
@@ -437,6 +454,115 @@ void drawProximity(const MapType& points, Mat& imageGray)
     }
 
 }
+#endif
+
+void drawProximity(const std::vector<MapType>& mappings, Mat& imageGray)
+{
+    //std::vector< std::vector<float>> mutiValues;
+
+    std::vector<std::vector<float>> coeffs(imageGray.rows);
+    for (auto& l : coeffs)
+    {
+        l.resize(imageGray.cols, 1.f);
+    }
+
+
+    for (auto& points : mappings)
+    {
+        std::vector<float> values;
+        values.reserve(points.size());
+
+        for (const auto& pair : points)
+        {
+            const auto value = pair.second;
+            values.push_back(value);
+        }
+
+        std::sort(values.begin(), values.end());
+
+        //mutiValues.push_back(std::move(values));
+
+
+
+        for (const auto& pair : points)
+        {
+            const auto range = std::equal_range(values.begin(), values.end(), pair.second);
+            auto value = ((range.first - values.begin()) + (range.second - values.begin())) / (2. * values.size());
+            coeffs[pair.first.y][pair.first.x] *= value;
+        }
+
+        /*
+        for (const auto& pair : points)
+        {
+            // get pixel
+            auto color = imageGray.at<Vec3b>(pair.first);
+
+            // ... do something to the color ....
+
+            //const auto value = pair.second;
+            const auto range = std::equal_range(values.begin(), values.end(), pair.second);
+            auto value = ((range.first - values.begin()) + (range.second - values.begin())) / (2. * values.size());
+            //value = value * value * value;
+
+            if (value < medium)
+            {
+                const auto coeff = (value - minValue) / (medium - minValue);
+                color[1] *= coeff;
+                color[0] *= (1.f - coeff);
+                color[2] = 0;
+            }
+            else
+            {
+                const auto coeff = (value - medium) / (maxValue - medium);
+                color[2] *= coeff;
+                color[1] *= (1.f - coeff);
+                color[0] = 0;
+            }
+
+            // set pixel
+            imageGray.at<Vec3b>(pair.first) = color;
+        }
+        */
+    }
+
+    for (int y = 0; y < coeffs.size(); ++y)
+        for (int x = 0; x < coeffs[0].size(); ++x)
+        { 
+            const float minValue = 0;
+            const float medium = .5f;
+            const float maxValue = 1;
+
+            Point pt(x, y);
+            // get pixel
+            auto color = imageGray.at<Vec3b>(pt);
+
+            // ... do something to the color ....
+
+            //const auto value = pair.second;
+            auto value = coeffs[y][x];
+            //value = value * value * value;
+
+            if (value < medium)
+            {
+                const auto coeff = (value - minValue) / (medium - minValue);
+                color[1] *= coeff;
+                color[0] *= (1.f - coeff);
+                color[2] = 0;
+            }
+            else
+            {
+                const auto coeff = (value - medium) / (maxValue - medium);
+                color[2] *= coeff;
+                color[1] *= (1.f - coeff);
+                color[0] = 0;
+            }
+
+            // set pixel
+            imageGray.at<Vec3b>(pt) = color;
+        }
+
+}
+
 
 MapType GenerateMap(const Mat& curGray)
 {
@@ -583,7 +709,6 @@ int main(int argc, char** argv)
     Mat curGray, /*prevGray,*/ flowImageGray;
     string windowName = "Optical Flow";
     namedWindow(windowName, 1);
-    float scalingFactor = 1. / 3; //0.125;
 
 
     if (frame.empty())
@@ -592,27 +717,40 @@ int main(int argc, char** argv)
         return -1;
     }
 
+    const float scalingFactor = 1. / 4; //0.125;
 
     // Iterate until the user presses the Esc key
     while (true)
     {
-        // Resize the frame
-        resize(frame, frame, Size(), scalingFactor, scalingFactor, INTER_AREA);
+        std::vector<MapType> mappings;
 
-        // Convert to grayscale
-        cvtColor(frame, curGray, COLOR_BGR2GRAY);
+        for (int i = 0; i < 16; ++i)
+        {
+            Mat frameCopy = frame;
+            OffsetImage(frameCopy, i / 4, i % 4);
 
-        // Check if the image is valid
-        //if (prevGray.data)
-        //{
+            // Resize the frame
+            resize(frameCopy, frameCopy, Size(), scalingFactor, scalingFactor, INTER_AREA);
 
-        auto shifts = GenerateMap(curGray);
+            // Convert to grayscale
+            cvtColor(frameCopy, curGray, COLOR_BGR2GRAY);
 
-            // Convert to 3-channel RGB
-            cvtColor(curGray, flowImageGray, COLOR_GRAY2BGR);
+            // Check if the image is valid
+            //if (prevGray.data)
+            //{
+
+            mappings.push_back(GenerateMap(curGray));
+
+            if (i == 0)
+            {
+                // Convert to 3-channel RGB
+                cvtColor(curGray, flowImageGray, COLOR_GRAY2BGR);
+            }
+        }
+
 
             // Draw the optical flow map
-            drawProximity(shifts, flowImageGray);
+            drawProximity(mappings, flowImageGray);
 
             // Display the output image
             imshow(windowName, flowImageGray);
