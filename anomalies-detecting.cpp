@@ -19,6 +19,8 @@
 
 #include <float.h>
 
+#include <time.h>
+
 using namespace cv;
 using namespace std;
 
@@ -371,7 +373,7 @@ MapType GenerateMap(const Mat& curGray)
                         v /= coeff;
                 }
 
-                enum { NUM_RESULTS = 30 };
+                enum { NUM_RESULTS = 5 };
 
                 size_t ret_index[NUM_RESULTS];
                 float out_dist_sqr[NUM_RESULTS];
@@ -396,7 +398,7 @@ MapType GenerateMap(const Mat& curGray)
 
                 // In case of less points in the tree than requested:
 
-                enum { NN_RESULT = 19 };
+                enum { NN_RESULT = 2 };
 
                 if (results.size() > NN_RESULT)
                 {
@@ -436,6 +438,9 @@ int main(int argc, char** argv)
 {
     try
     {
+
+        clock_t start = clock();
+
         // set default values for tracking algorithm and video
     string videoPath = (argc == 2) ? argv[1] : "videos/run.mp4";
 
@@ -511,13 +516,22 @@ int main(int argc, char** argv)
             break;
 
         // Capture the current frame
-        cap >> frame;
+        Mat newFrame;
+        cap >> newFrame;
 
-        if (frame.empty())
+        if (newFrame.empty())
         {
+            std::cout << "Handling mapping in " << (double)(clock() - start) / CLOCKS_PER_SEC << " seconds" << std::endl;
             waitKey(0);
             break;
         }
+
+        std::swap(frame, newFrame);
+    }
+
+    if (argc > 2)
+    {
+        imwrite(argv[2], flowImageGray);
     }
 
     return 0;
