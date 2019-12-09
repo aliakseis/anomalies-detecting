@@ -442,7 +442,7 @@ int main(int argc, char** argv)
         clock_t start = clock();
 
         // set default values for tracking algorithm and video
-    string videoPath = (argc == 2) ? argv[1] : "videos/run.mp4";
+    string videoPath = (argc >= 2) ? argv[1] : "videos/run.mp4";
 
 
     // create a video capture object to read videos
