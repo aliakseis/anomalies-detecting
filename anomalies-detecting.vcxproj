@@ -152,10 +152,12 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="anomalies-detecting.h" />
     <ClInclude Include="nanoflann.hpp" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="anomalies-detecting.cpp" />
+    <ClCompile Include="main.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

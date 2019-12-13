@@ -1,14 +1,14 @@
 // anomalies-detecting.cpp : This file contains the 'main' function. Program execution begins and ends there.
 //
 
+#include "anomalies-detecting.h"
 
 #include "nanoflann.hpp"
 
-#include "opencv2/video/tracking.hpp"
-#include "opencv2/imgproc/imgproc.hpp"
-#include "opencv2/highgui/highgui.hpp"
 
-#include <iostream>
+#include "opencv2/imgproc/imgproc.hpp"
+
+
 
 #include <future>
 
@@ -19,14 +19,13 @@
 
 #include <float.h>
 
-#include <time.h>
 
 using namespace cv;
 using namespace std;
 
 using namespace nanoflann;
 
-//////////////////////////////////////////////////////////////////////////////
+namespace {
 
 // https://github.com/jmtilli/fastdiv
 
@@ -134,18 +133,15 @@ inline void fastdivmod(uint32_t eax,
 
 //////////////////////////////////////////////////////////////////////////////
 
-void OffsetImage(cv::Mat &image, int xoffset, int yoffset, const cv::Scalar& bordercolour = {0, 0, 0})
+cv::Mat OffsetImage(const cv::Mat &image, int xoffset, int yoffset, int coeff, const cv::Size& size)
 {
-    if (xoffset != 0 && yoffset != 0)
-    {
-        cv::Mat H = (cv::Mat_<double>(3, 3) <<
-            1, 0, xoffset, 0, 1, yoffset, 0, 0, 1);
+        cv::Mat H = (cv::Mat_<double>(2, 3) <<
+            coeff, 0, xoffset, 0, coeff, yoffset);
 
         cv::Mat aux;
-        cv::warpPerspective(image, aux, H, image.size(), cv::INTER_LINEAR,
-            cv::BORDER_CONSTANT, bordercolour);
-        image = aux;
-    }
+        cv::warpAffine(image, aux, H, size, cv::INTER_AREA | cv::WARP_INVERSE_MAP,
+            cv::BORDER_REPLICATE);
+        return aux;
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -259,16 +255,11 @@ typedef KDTreeSingleIndexAdaptor<
 typedef std::vector<std::pair<Point, float>> MapType;
 
 
-
-void drawProximity(const std::vector<MapType>& mappings, Mat& imageGray)
+cv::Mat mergeProximity(const std::vector<MapType>& mappings, int rows, int cols)
 {
-    std::vector<std::vector<float>> coeffs(imageGray.rows);
-    for (auto& l : coeffs)
-    {
-        l.resize(imageGray.cols, 1.f);
-    }
+    cv::Mat coeffs(rows, cols, CV_32FC1);
 
-
+    coeffs = -1.f; // untouched points don't signal
     for (auto& points : mappings)
     {
         if (points.empty())
@@ -287,54 +278,27 @@ void drawProximity(const std::vector<MapType>& mappings, Mat& imageGray)
 
         for (const auto& pair : points)
         {
+            const Point& pt = pair.first;
+            auto coeff = coeffs.at<float>(pt);
+            if (coeff == -1.f)
+                coeff = 1.f;
+
             const auto range = std::equal_range(values.begin(), values.end(), pair.second);
             auto value = ((range.first - values.begin()) + (range.second - values.begin())) / (2. * values.size());
-            coeffs[pair.first.y][pair.first.x] *= value;
+
+            coeff *= value;
+
+            coeffs.at<float>(pt) = coeff;
         }
     }
 
-    const float minValue = .4f; // threshold
-    const float maxValue = 1;
-    const float medium = (minValue + maxValue) / 2;
-
-    for (int y = 0; y < coeffs.size(); ++y)
-        for (int x = 0; x < coeffs[0].size(); ++x)
-        { 
-            auto value = coeffs[y][x];
-            if (value < minValue)
-                continue;
-
-            Point pt(x, y);
-            // get pixel
-            auto color = imageGray.at<Vec3b>(pt);
-
-            // ... do something to the color ....
-
-            if (value < medium)
-            {
-                const auto coeff = (value - minValue) / (medium - minValue);
-                color[1] *= coeff;
-                color[0] *= (1.f - coeff);
-                color[2] = 0;
-            }
-            else
-            {
-                const auto coeff = (value - medium) / (maxValue - medium);
-                color[2] *= coeff;
-                color[1] *= (1.f - coeff);
-                color[0] = 0;
-            }
-
-            // set pixel
-            imageGray.at<Vec3b>(pt) = color;
-        }
-
+    return coeffs;
 }
 
 
 MapType GenerateMap(const Mat& curGray)
 {
-    PointsProvider provider(&curGray); //&prevGray);
+    PointsProvider provider(&curGray);
 
     my_kd_tree_t infos(NUM_ATTRIBUTES, provider);
 
@@ -350,6 +314,11 @@ MapType GenerateMap(const Mat& curGray)
         const auto numCols = curGray.cols - DIMENSION + 1;
 
         MapType shifts;
+
+        enum { NTH_RESULT_INDEX = 2 };
+
+        std::vector<size_t> ret_index;
+        std::vector<float> out_dist_sqr;
 
         // searching
         for (int y = yBegin; y < yEnd; ++y)
@@ -373,38 +342,45 @@ MapType GenerateMap(const Mat& curGray)
                         v /= coeff;
                 }
 
-                enum { NUM_RESULTS = 5 };
-
-                size_t ret_index[NUM_RESULTS];
-                float out_dist_sqr[NUM_RESULTS];
-
-                const auto num_results = infos.knnSearch(&pos[0], NUM_RESULTS, &ret_index[0], &out_dist_sqr[0]);
-
-                auto results = std::inner_product(
-                    ret_index, ret_index + num_results, out_dist_sqr,
-                    std::vector<std::pair<size_t, float>>(),
-                    [](auto a, auto b) { a.push_back(std::move(b)); return a; },
-                    std::make_pair<size_t&, float&>
-                );
-
-                results.erase(
-                    std::remove_if(results.begin(), results.end(), 
-                        [&provider, x, y](const auto& result) { 
-                            uint32_t xx, yy;
-                            provider.get_x_y(result.first, xx, yy);
-                            return hypot(x - int(xx), y - int(yy)) < 20;
-                        }),
-                    results.end());
-
-                // In case of less points in the tree than requested:
-
-                enum { NN_RESULT = 2 };
-
-                if (results.size() > NN_RESULT)
+                for (unsigned int bufSize = NTH_RESULT_INDEX + 4;; bufSize *= 2)
                 {
-                    Point ptTo(x + DIMENSION / 2, y + DIMENSION / 2);
-                    shifts.push_back({ ptTo, results[NN_RESULT].second });
+                    // resize to fit if needed
+                    if (ret_index.size() < bufSize)
+                        ret_index.resize(bufSize);
+                    if (out_dist_sqr.size() < bufSize)
+                        out_dist_sqr.resize(bufSize);
+
+                    const auto num_results = infos.knnSearch(&pos[0], bufSize, &ret_index[0], &out_dist_sqr[0]);
+
+                    auto results = std::inner_product(
+                        ret_index.cbegin(), ret_index.cbegin() + num_results, out_dist_sqr.cbegin(),
+                        std::vector<std::pair<size_t, float>>(),
+                        [](auto a, auto b) { a.push_back(std::move(b)); return a; },
+                        std::make_pair<const size_t&, const float&>
+                    );
+
+                    results.erase(
+                        std::remove_if(results.begin(), results.end(),
+                            [&provider, x, y](const auto& result) {
+                                uint32_t xx, yy;
+                                provider.get_x_y(result.first, xx, yy);
+                                return hypot(x - int(xx), y - int(yy)) < 20; // TODO calculate proximity param
+                            }),
+                        results.end());
+
+                    if (results.size() > NTH_RESULT_INDEX)
+                    {
+                        Point ptTo(x + DIMENSION / 2, y + DIMENSION / 2);
+                        shifts.push_back({ ptTo, results[NTH_RESULT_INDEX].second });
+
+                        break; // ok
+                    }
+
+                    // In case of less points in the tree than requested:
+                    if (num_results < bufSize)
+                        break;
                 }
+
             }
         }
 
@@ -433,112 +409,29 @@ MapType GenerateMap(const Mat& curGray)
     return shifts;
 }
 
+} // namespace
 
-int main(int argc, char** argv)
+
+
+cv::Mat getAnomalies(const cv::Mat& frame, const cv::Rect& rect, int squeezeMultiplyFactor)
 {
-    try
+    const auto outSize = rect.size() / squeezeMultiplyFactor;
+
+    std::vector<MapType> mappings;
+
+    for (int i = 0; i < squeezeMultiplyFactor * squeezeMultiplyFactor; ++i)
     {
+        Mat frameCopy = OffsetImage(frame, 
+            rect.x + (i / squeezeMultiplyFactor), 
+            rect.y + (i % squeezeMultiplyFactor), 
+            squeezeMultiplyFactor, outSize);
 
-        clock_t start = clock();
+        // Convert to grayscale
+        cvtColor(frameCopy, frameCopy, COLOR_BGR2GRAY);
 
-        // set default values for tracking algorithm and video
-    string videoPath = (argc >= 2) ? argv[1] : "videos/run.mp4";
-
-
-    // create a video capture object to read videos
-    cv::VideoCapture cap(videoPath);
-
-    Mat frame;
-
-    if (!cap.isOpened())
-    {
-        frame = cv::imread(videoPath);
-        if (frame.empty())
-        {
-            cerr << "Unable to open the file. Exiting!" << endl;
-            return -1;
-        }
-    }
-    else
-    {
-        // Capture the current frame
-        cap >> frame;
+        mappings.push_back(GenerateMap(frameCopy));
     }
 
-    //char ch;
-    Mat curGray, /*prevGray,*/ flowImageGray;
-    string windowName = "Anomalies";
-    namedWindow(windowName, WINDOW_NORMAL);
-
-
-    if (frame.empty())
-    {
-        cerr << "No image in the file. Exiting!" << endl;
-        return -1;
-    }
-
-    const float scalingFactor = 1. / 4; //0.125;
-
-    // Iterate until the user presses the Esc key
-    while (true)
-    {
-        std::vector<MapType> mappings;
-
-        for (int i = 0; i < 16; ++i)
-        {
-            Mat frameCopy = frame;
-            OffsetImage(frameCopy, i / 4, i % 4);
-
-            // Resize the frame
-            resize(frameCopy, frameCopy, Size(), scalingFactor, scalingFactor, INTER_AREA);
-
-            // Convert to grayscale
-            cvtColor(frameCopy, curGray, COLOR_BGR2GRAY);
-
-            mappings.push_back(GenerateMap(curGray));
-
-            if (i == 0)
-            {
-                // Convert to 3-channel RGB
-                cvtColor(curGray, flowImageGray, COLOR_GRAY2BGR);
-            }
-        }
-
-        // Draw the optical flow map
-        drawProximity(mappings, flowImageGray);
-
-        // Display the output image
-        imshow(windowName, flowImageGray);
-
-        // Break out of the loop if the user presses the Esc key
-        char ch = waitKey(10);
-        if (ch == 27)
-            break;
-
-        // Capture the current frame
-        Mat newFrame;
-        cap >> newFrame;
-
-        if (newFrame.empty())
-        {
-            std::cout << "Handling mapping in " << (double)(clock() - start) / CLOCKS_PER_SEC << " seconds" << std::endl;
-            waitKey(0);
-            break;
-        }
-
-        std::swap(frame, newFrame);
-    }
-
-    if (argc > 2)
-    {
-        imwrite(argv[2], flowImageGray);
-    }
-
-    return 0;
-    }
-    catch (const std::exception& ex)
-    {
-        std::cerr << "Fatal: " << ex.what() << '\n';
-        return 1;
-    }
+    return mergeProximity(mappings, outSize.height, outSize.width);
 }
+
