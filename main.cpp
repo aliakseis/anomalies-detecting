@@ -138,20 +138,22 @@ int main(int argc, char** argv)
 
         const int SqueezeMultiplyFactor = 4;
         const int FragmentSize = 256;
-        //const int offsetX = 300;
 
-        //const int offsetX = 10;
-        //const int offsetY = 10;
+        std::vector<cv::Point> positions;
 
-        //const int offsetX = 400;
-        //const int offsetY = 200;
-
-        const struct { int offsetX, offsetY; } positions[]{
-            { 10, 10 },
-            { 400, 10 },
-            { 400, 280 },
-            { 800, 300 },
-        };
+        if (argc > 2)
+        {
+            std::istringstream ss(argv[2]);
+            std::string buffer;
+            while (std::getline(ss, buffer, ','))
+            {
+                int x = std::stoi(buffer);
+                if (!std::getline(ss, buffer, ','))
+                    break;
+                int y = std::stoi(buffer);
+                positions.push_back({ x, y });
+            }
+        }
 
         const float threshold = 0.5f;
 
@@ -163,10 +165,10 @@ int main(int argc, char** argv)
             flowImageGray = frame;
 
             for (auto& pos : positions) {
-                Rect rect(pos.offsetX, pos.offsetY, FragmentSize, FragmentSize);
+                Rect rect(pos.x, pos.y, FragmentSize, FragmentSize);
                 const auto proximity = getAnomalies(frame, rect, SqueezeMultiplyFactor);
                 // Draw the optical flow map
-                drawProximity(proximity, flowImageGray, pos.offsetX, pos.offsetY, SqueezeMultiplyFactor, threshold);
+                drawProximity(proximity, flowImageGray, pos.x, pos.y, SqueezeMultiplyFactor, threshold);
 
                 cv::Mat img_thr(proximity.rows, proximity.cols, CV_8UC1);
                 for (int y = 0; y < proximity.rows; ++y)
@@ -176,7 +178,7 @@ int main(int argc, char** argv)
                         img_thr.at<uchar>({ x, y }) = (value >= threshold) ? 255 : 0;
                     }
 
-                ConnectedComponentsStats(img_thr, flowImageGray, pos.offsetX, pos.offsetY, SqueezeMultiplyFactor);
+                ConnectedComponentsStats(img_thr, flowImageGray, pos.x, pos.y, SqueezeMultiplyFactor);
             }
 
             // Display the output image
@@ -201,9 +203,9 @@ int main(int argc, char** argv)
             std::swap(frame, newFrame);
         }
 
-        if (argc > 2)
+        if (argc > 3)
         {
-            imwrite(argv[2], flowImageGray);
+            imwrite(argv[3], flowImageGray);
         }
 
         return 0;
