@@ -148,11 +148,16 @@ cv::Mat OffsetImage(const cv::Mat &image, int xoffset, int yoffset, int coeff, c
 
 enum { DIMENSION = 3 };
 
-enum { ADDITIONAL = 0 };
+enum { ADDITIONAL = 1 };
 
 enum { NUM_ATTRIBUTES = DIMENSION * DIMENSION + ADDITIONAL };
 
 typedef float AttributeType;
+
+float getBrightnessValue(float param)
+{
+    return  param / 200.;
+}
 
 class PointsProvider
 {
@@ -181,11 +186,14 @@ public:
     //  "if/else's" are actually solved at compile time.
     float kdtree_get_pt(const size_t idx, const size_t dim) const
     {
+        const double coeff = get_coeff(idx);
+
+        if (dim == 0)
+            return getBrightnessValue(coeff);
+
         uint32_t x, y;
         get_x_y(idx, x, y);
 
-        const double coeff = get_coeff(idx);
-        
         const double v = do_kdtree_get_pt(x, y, dim);
 
         return v / coeff;
@@ -340,7 +348,11 @@ MapType GenerateMap(const Mat& curGray)
                     const auto coeff = sqrt(sq_sum);
                     for (auto& v : pos)
                         v /= coeff;
+
+                    pos[0] = getBrightnessValue(coeff);
                 }
+                else
+                    pos[0] = getBrightnessValue(0);
 
                 for (unsigned int bufSize = NTH_RESULT_INDEX + 4;; bufSize *= 2)
                 {
