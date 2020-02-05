@@ -58,6 +58,7 @@
 #include <stdexcept>
 #include <vector>
 
+#include <future>
 #include <mutex>
 
 /** Library version: 0xMmP (M=Major,m=minor,P=patch) */

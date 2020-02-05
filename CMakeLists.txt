@@ -17,9 +17,12 @@ if(MSVC)
   add_definitions(-D_WIN32_WINNT=0x600)
 endif()
 
+if(UNIX)
+  SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pthread")
+endif()
 
 # Requires OpenCV
-FIND_PACKAGE( OpenCV 4 REQUIRED )
+FIND_PACKAGE( OpenCV  REQUIRED )
 
 
 
