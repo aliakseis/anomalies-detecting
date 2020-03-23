@@ -425,24 +425,31 @@ MapType GenerateMap(const Mat& curGray)
 
 
 
-cv::Mat getAnomalies(const cv::Mat& frame, const cv::Rect& rect, int squeezeMultiplyFactor)
+cv::Mat getAnomalies(const cv::Mat& frame, const cv::Rect& rect,
+    int squeezeMultiplyFactor // must be a multiple of 4
+)
 {
+    enum { MULTIPLY = 4 };
+
     const auto outSize = rect.size() / squeezeMultiplyFactor;
 
     std::vector<MapType> mappings;
 
-    for (int i = 0; i < squeezeMultiplyFactor * squeezeMultiplyFactor; ++i)
-    {
-        Mat frameCopy = OffsetImage(frame, 
-            rect.x + (i / squeezeMultiplyFactor), 
-            rect.y + (i % squeezeMultiplyFactor), 
-            squeezeMultiplyFactor, outSize);
+    const int step = squeezeMultiplyFactor / MULTIPLY;
 
-        // Convert to grayscale
-        cvtColor(frameCopy, frameCopy, COLOR_BGR2GRAY);
+    for (int i = 0; i < MULTIPLY; ++i)
+        for (int j = 0; j < MULTIPLY; ++j)
+        {
+            Mat frameCopy = OffsetImage(frame,
+                rect.x + i * step,
+                rect.y + j * step,
+                squeezeMultiplyFactor, outSize);
 
-        mappings.push_back(GenerateMap(frameCopy));
-    }
+            // Convert to grayscale
+            cvtColor(frameCopy, frameCopy, COLOR_BGR2GRAY);
+
+            mappings.push_back(GenerateMap(frameCopy));
+        }
 
     return mergeProximity(mappings, outSize.height, outSize.width);
 }

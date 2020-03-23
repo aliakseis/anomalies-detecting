@@ -92,6 +92,13 @@ void ConnectedComponentsStats(cv::Mat& img, cv::Mat& output,
     }
 }
 
+inline int GetSqueezeExtra(int size)
+{
+    enum { MaxFragmentSize = 512 };
+
+    return (size + MaxFragmentSize - 1) / MaxFragmentSize;
+}
+
 
 int main(int argc, char** argv)
 {
@@ -136,23 +143,32 @@ int main(int argc, char** argv)
             return -1;
         }
 
-        const int SqueezeMultiplyFactor = 4;
+        const int StartSqueezeMultiplyFactor = 4;
         const int FragmentSize = 256;
 
-        std::vector<cv::Point> positions;
+        std::vector<cv::Rect> positions;
 
         if (argc > 2)
         {
-            std::istringstream ss(argv[2]);
-            std::string buffer;
-            while (std::getline(ss, buffer, ','))
-            {
-                int x = std::stoi(buffer);
-                if (!std::getline(ss, buffer, ','))
-                    break;
-                int y = std::stoi(buffer);
-                positions.push_back({ x, y });
+            try {
+                std::istringstream ss(argv[2]);
+                std::string buffer;
+                while (std::getline(ss, buffer, ','))
+                {
+                    int x = std::stoi(buffer);
+                    if (!std::getline(ss, buffer, ','))
+                        break;
+                    int y = std::stoi(buffer);
+                    positions.push_back({ x, y, FragmentSize, FragmentSize });
+                }
             }
+            catch (...) {
+                positions.clear();
+            }
+        }
+        if (positions.empty())
+        {
+            positions.push_back({0, 0, frame.cols, frame.rows});
         }
 
         const float threshold = 0.5f;
@@ -164,11 +180,15 @@ int main(int argc, char** argv)
             //cvtColor(frame, flowImageGray, COLOR_BGR2GRAY);
             flowImageGray = frame;
 
-            for (auto& pos : positions) {
-                Rect rect(pos.x, pos.y, FragmentSize, FragmentSize);
+            for (auto& rect : positions) 
+            {
+                // must be a multiple of 4
+                const int SqueezeMultiplyFactor = StartSqueezeMultiplyFactor
+                    * std::max(GetSqueezeExtra(rect.width), GetSqueezeExtra(rect.height));
+
                 const auto proximity = getAnomalies(frame, rect, SqueezeMultiplyFactor);
                 // Draw the optical flow map
-                drawProximity(proximity, flowImageGray, pos.x, pos.y, SqueezeMultiplyFactor, threshold);
+                drawProximity(proximity, flowImageGray, rect.x, rect.y, SqueezeMultiplyFactor, threshold);
 
                 cv::Mat img_thr(proximity.rows, proximity.cols, CV_8UC1);
                 for (int y = 0; y < proximity.rows; ++y)
@@ -178,7 +198,7 @@ int main(int argc, char** argv)
                         img_thr.at<uchar>({ x, y }) = (value >= threshold) ? 255 : 0;
                     }
 
-                ConnectedComponentsStats(img_thr, flowImageGray, pos.x, pos.y, SqueezeMultiplyFactor);
+                ConnectedComponentsStats(img_thr, flowImageGray, rect.x, rect.y, SqueezeMultiplyFactor);
             }
 
             // Display the output image
