@@ -310,8 +310,7 @@ MapType GenerateMap(const Mat& curGray)
 
     my_kd_tree_t infos(NUM_ATTRIBUTES, provider);
 
-    //infos.buildIndex();
-    infos.fastBuildIndex();
+    infos.buildIndex();
 
     const auto numRows = curGray.rows - DIMENSION + 1;
     const auto numCols = curGray.cols - DIMENSION + 1;
@@ -325,7 +324,7 @@ MapType GenerateMap(const Mat& curGray)
 
         enum { NTH_RESULT_INDEX = 2 };
 
-        std::vector<size_t> ret_index;
+        std::vector<uint32_t> ret_index;
         std::vector<float> out_dist_sqr;
 
         // searching
